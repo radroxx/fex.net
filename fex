@@ -1,73 +1,80 @@
 #!/bin/sh
 
+BASE64_D="-d"
+
+if [ $(uname) = "Darwin" ]
+then
+	BASE64_D="-D"
+fi
+
 help(){
-	echo "Example:"
-	echo "\tКомманда : Возв. тип\t\t\t\t\t- Описание."
-	echo "\tfex create : FEX_ID\t\t\t\t\t- Создать новое хранилище."
-	echo "\tfex delete FEX_ID : STATUS\t\t\t\t- Удалить хранилище."
-	echo "\tfex token FEX_ID <PASSWORD> : TOKEN\t\t\t- Получить токен."
-	echo "\tfex passwd FEX_ID OLD_PASSWORD <PASSWORD> : TOKEN\t- Изменить пароль."
-	echo "\tfex file TOKEN list\t\t\t\t\t- Список объектов."
-	echo "\tfex file TOKEN add FILE : FILE_ID\t\t\t- Добавить новый файл."
-	echo "\tfex file TOKEN del FILE_ID : STATUS\t\t\t- Удалить файл."
+	echo -e "Example:"
+	echo -e "\tКомманда : Возв. тип\t\t\t\t\t- Описание."
+	echo -e "\tfex create : FEX_ID\t\t\t\t\t- Создать новое хранилище."
+	echo -e "\tfex delete FEX_ID : STATUS\t\t\t\t- Удалить хранилище."
+	echo -e "\tfex token FEX_ID <PASSWORD> : TOKEN\t\t\t- Получить токен."
+	echo -e "\tfex passwd FEX_ID OLD_PASSWORD <PASSWORD> : TOKEN\t- Изменить пароль."
+	echo -e "\tfex file TOKEN list\t\t\t\t\t- Список объектов."
+	echo -e "\tfex file TOKEN add FILE : FILE_ID\t\t\t- Добавить новый файл."
+	echo -e "\tfex file TOKEN del FILE_ID : STATUS\t\t\t- Удалить файл."
 }
 create() {
-	DATA=$( curl https://fex.net/j_object_create 2>/dev/null )
+	DATA=$( curl --silent https://fex.net/j_object_create )
 	echo $DATA  | jq -cr .token
 }
 delete(){
 	FEX_ID=$1
 	COOKIES=
-	BODY=$( curl --cookie "viewhash=$COOKIES" https://fex.net/j_object_delete/$FEX_ID 2>/dev/null )
+	BODY=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_object_delete/$FEX_ID )
 	echo $BODY | jq -cr .result | sed "s/1/OK/g" | sed "s/0/FAIL/g"
 }
 token(){
 	FEX_ID=$1
 	COOKIES=
-	DATA=$( curl -X POST -d "pass=$2" -i https://fex.net/j_object_view/$FEX_ID 2>/dev/null )
+	DATA=$( curl --silent -X POST -d "pass=$2" -i https://fex.net/j_object_view/$FEX_ID )
 	BODY=$( echo "$DATA" | grep result )
 	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
 		echo "$BODY" | jq -cr '.err.msg' ; exit 1
 	fi
-	C_TOKEN=$( echo "$DATA" | grep -o 'viewhash=[0-9A-z%]*;' | sed -e 's/viewhash=//g' -e 's/;//g' )
-	echo "$1\n$C_TOKEN" | base64
+	C_TOKEN=$( echo "$DATA" | tr -d "\r\n" | sed -r -e 's/.*viewhash=//g' -e 's/;.*//g' )
+	echo -e "$1\n$C_TOKEN" | base64
 }
 passwd(){
 	FEX_ID=$1
 	COOKIES=
-	DATA=$( curl -X POST --data "pass=$3" --data "old_pass=$2" -i https://fex.net/j_object_set_view_pass/$FEX_ID 2>/dev/null )
+	DATA=$( curl --silent -X POST --data "pass=$3" --data "old_pass=$2" -i https://fex.net/j_object_set_view_pass/$FEX_ID 2>/dev/null )
 	BODY=$( echo "$DATA" | grep result )
 	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
 		echo "$BODY" | jq -cr '.err.msg' ; exit 1
 	fi
-	C_TOKEN=$( echo "$DATA" | grep -o 'viewhash=[0-9A-z%]*;' | sed -e 's/viewhash=//g' -e 's/;//g' )
+	C_TOKEN=$( echo "$DATA" | tr -d "\r\n" | sed -r -e 's/.*viewhash=//g' -e 's/;.*//g' )
 	echo "$FEX_ID\n$C_TOKEN" | base64
 }
 file_list(){
-	FEX_ID=$( echo "$1" | base64 -D | head -n1)
-	COOKIES=$( echo "$1" | base64 -D | tail -n1)
-	BODY=$( curl --cookie "viewhash=$COOKIES" https://fex.net/j_object_view/$FEX_ID 2>/dev/null )
+	FEX_ID=$( echo "$1" | base64 $BASE64_D | head -n1)
+	COOKIES=$( echo "$1" | base64 $BASE64_D | tail -n1)
+	BODY=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_object_view/$FEX_ID 2>/dev/null )
 	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
 		echo "$BODY" | jq -cr '.err.msg' ; exit 1
 	fi
 	echo $BODY | jq -cr '.upload_list[] | [ .name, .upload_id, .sha1 ] | join("\t ")'
 }
 file_del(){
-	FEX_ID=$( echo "$1" | base64 -D | head -n1)
-	COOKIES=$( echo "$1" | base64 -D | tail -n1)
-	BODY=$( curl --cookie "viewhash=$COOKIES" https://fex.net/j_upload_delete/$FEX_ID/$2 2>/dev/null )
+	FEX_ID=$( echo "$1" | base64 $BASE64_D | head -n1)
+	COOKIES=$( echo "$1" | base64 $BASE64_D | tail -n1)
+	BODY=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_upload_delete/$FEX_ID/$2 2>/dev/null )
 	echo $BODY | jq -cr .result | sed "s/1/OK/g" | sed "s/0/FAIL/g"
 }
 file_add(){
-	FEX_ID=$( echo "$1" | base64 -D | head -n1)
-	COOKIES=$( echo "$1" | base64 -D | tail -n1)
-	DATA=$( curl --cookie "viewhash=$COOKIES" https://fex.net/j_object_view/$FEX_ID 2>/dev/null )
+	FEX_ID=$( echo "$1" | base64 $BASE64_D | head -n1)
+	COOKIES=$( echo "$1" | base64 $BASE64_D | tail -n1)
+	DATA=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_object_view/$FEX_ID 2>/dev/null )
 	FSID=$( echo "$DATA" | jq -cr .fs_id )
-	DATA=$( curl -X OPTIONS --cookie "viewhash=$COOKIES" -i https://fs$FSID.fex.net/upload/$FEX_ID 2>/dev/null | grep "HTTP/" )
+	DATA=$( curl --silent -X OPTIONS --cookie "viewhash=$COOKIES" -i https://fs$FSID.fex.net/upload/$FEX_ID 2>/dev/null | grep "HTTP/" )
 	if [ "$DATA" = "HTTP/1.1 204 No Content\r" ] ; then
 		echo "Error OPTIONS status!" ; exit 1
 	fi
-	BODY=$( curl --cookie "viewhash=$COOKIES" --form file=@$2 -v https://fs$FSID.fex.net/upload/$FEX_ID 2>/dev/null )
+	BODY=$( curl --silent --cookie "viewhash=$COOKIES" --form file=@$2 -v https://fs$FSID.fex.net/upload/$FEX_ID 2>/dev/null )
 	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
 		echo "$BODY" | jq -cr '.err.msg' ; exit 1
 	fi
