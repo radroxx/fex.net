@@ -36,7 +36,7 @@ token(){
 	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
 		echo "$BODY" | jq -cr '.err.msg' ; exit 1
 	fi
-	C_TOKEN=$( echo "$DATA" | tr -d "\r\n" | sed -r -e 's/.*viewhash=//g' -e 's/;.*//g' )
+	C_TOKEN=$( echo "$DATA" | grep "Set-Cookie" | grep -v "cid" | tr -d "\r\n" | sed -r -e 's/.*viewhash=//g' -e 's/;.*//g' )
 	echo -e "$1\n$C_TOKEN" | base64
 }
 passwd(){
@@ -47,7 +47,7 @@ passwd(){
 	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
 		echo "$BODY" | jq -cr '.err.msg' ; exit 1
 	fi
-	C_TOKEN=$( echo "$DATA" | tr -d "\r\n" | sed -r -e 's/.*viewhash=//g' -e 's/;.*//g' )
+	C_TOKEN=$( echo "$DATA" | grep "Set-Cookie" | grep -v "cid" | tr -d "\r\n" | sed -r -e 's/.*viewhash=//g' -e 's/;.*//g' )
 	echo -e "$FEX_ID\n$C_TOKEN" | base64
 }
 file_list(){
