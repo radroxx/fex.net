@@ -42,18 +42,18 @@ token(){
 passwd(){
 	FEX_ID=$1
 	COOKIES=
-	DATA=$( curl --silent -X POST --data "pass=$3" --data "old_pass=$2" -i https://fex.net/j_object_set_view_pass/$FEX_ID 2>/dev/null )
+	DATA=$( curl --silent -X POST --data "pass=$3" --data "old_pass=$2" -i https://fex.net/j_object_set_view_pass/$FEX_ID )
 	BODY=$( echo "$DATA" | grep result )
 	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
 		echo "$BODY" | jq -cr '.err.msg' ; exit 1
 	fi
 	C_TOKEN=$( echo "$DATA" | tr -d "\r\n" | sed -r -e 's/.*viewhash=//g' -e 's/;.*//g' )
-	echo "$FEX_ID\n$C_TOKEN" | base64
+	echo -e "$FEX_ID\n$C_TOKEN" | base64
 }
 file_list(){
 	FEX_ID=$( echo "$1" | base64 $BASE64_D | head -n1)
 	COOKIES=$( echo "$1" | base64 $BASE64_D | tail -n1)
-	BODY=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_object_view/$FEX_ID 2>/dev/null )
+	BODY=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_object_view/$FEX_ID )
 	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
 		echo "$BODY" | jq -cr '.err.msg' ; exit 1
 	fi
@@ -62,20 +62,21 @@ file_list(){
 file_del(){
 	FEX_ID=$( echo "$1" | base64 $BASE64_D | head -n1)
 	COOKIES=$( echo "$1" | base64 $BASE64_D | tail -n1)
-	BODY=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_upload_delete/$FEX_ID/$2 2>/dev/null )
+	BODY=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_upload_delete/$FEX_ID/$2 )
 	echo $BODY | jq -cr .result | sed "s/1/OK/g" | sed "s/0/FAIL/g"
 }
 file_add(){
 	FEX_ID=$( echo "$1" | base64 $BASE64_D | head -n1)
 	COOKIES=$( echo "$1" | base64 $BASE64_D | tail -n1)
-	DATA=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_object_view/$FEX_ID 2>/dev/null )
+	DATA=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_object_view/$FEX_ID )
 	FSID=$( echo "$DATA" | jq -cr .fs_id )
-	DATA=$( curl --silent -X OPTIONS --cookie "viewhash=$COOKIES" -i https://fs$FSID.fex.net/upload/$FEX_ID 2>/dev/null | grep "HTTP/" )
+	DATA=$( curl --silent -X OPTIONS --cookie "viewhash=$COOKIES" -i https://fs$FSID.fex.net/upload/$FEX_ID | grep "HTTP/" )
 	if [ "$DATA" = "HTTP/1.1 204 No Content\r" ] ; then
 		echo "Error OPTIONS status!" ; exit 1
 	fi
-	BODY=$( curl --silent --cookie "viewhash=$COOKIES" --form file=@$2 -v https://fs$FSID.fex.net/upload/$FEX_ID 2>/dev/null )
-	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
+	BODY=$( curl --silent --cookie "viewhash=$COOKIES" --form file=@$2 https://fs$FSID.fex.net/upload/$FEX_ID )
+	RESULT=$( echo "$BODY" | jq -cr .result )
+	if [ "$RESULT" = "0" ] ; then
 		echo "$BODY" | jq -cr '.err.msg' ; exit 1
 	fi
 	echo "$BODY" | jq -cr .upload_id
