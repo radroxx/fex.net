@@ -1,91 +1,295 @@
-#!/bin/sh
+#!/bin/busybox ash
 
-BASE64_D="-d"
+BUSYBOX_PATH=${BUSYBOX-/bin/busybox}
 
-if [ $(uname) = "Darwin" ]
-then
-	BASE64_D="-D"
-fi
+for PROG in cat echo sed grep tr test base64 head tail logger which ; do
+	alias ${PROG}="${BUSYBOX_PATH} ${PROG}"
+done
 
-help(){
-	echo -e "Example:"
-	echo -e "\tКомманда : Возв. тип\t\t\t\t\t- Описание."
-	echo -e "\tfex create : FEX_ID\t\t\t\t\t- Создать новое хранилище."
-	echo -e "\tfex delete FEX_ID : STATUS\t\t\t\t- Удалить хранилище."
-	echo -e "\tfex token FEX_ID <PASSWORD> : TOKEN\t\t\t- Получить токен."
-	echo -e "\tfex passwd FEX_ID OLD_PASSWORD <PASSWORD> : TOKEN\t- Изменить пароль."
-	echo -e "\tfex file TOKEN list\t\t\t\t\t- Список объектов."
-	echo -e "\tfex file TOKEN add FILE : FILE_ID\t\t\t- Добавить новый файл."
-	echo -e "\tfex file TOKEN del FILE_ID : STATUS\t\t\t- Удалить файл."
+CURL_TEST=$( which curl )
+CURL_PATH=${CURL-$CURL_TEST}
+
+alias curl="${CURL_PATH}"
+
+function fex_help() {
+cat << EOF
+Man:
+	Комманда : Возв. тип						- Описание.
+	fex create : TOKEN						- Создать новое хранилище.
+	fex token FEX_ID <PASSWORD> : TOKEN				- Получить токен. Если EXIT_STATUS = 0 значит все прошло успешно.
+	fex delete TOKEN : STATUS					- Удалить хранилище.
+	fex passwd TOKEN NEW_PASSWORD <OLD_PASSWORD> : NEW_TOKEN	- Изменить пароль.
+	fex file TOKEN list						- Список объектов.
+	fex file TOKEN add FILE <DIR_ID> : FILE_ID			- Добавить новый файл.
+	fex file TOKEN del FILE_ID [FILE_ID] [FILE_ID] : STATUS		- Удалить файл. Нельзя одновременно удалять из разных директорий.
+	fex file TOKEN get FILE_ID <PATH> : FILE NAME			- Скачать файл.
+	fex dir TOKEN add NAME <PARENT_DIR_ID> : DIR_ID			- Добавить папку
+	fex dir TOKEN del DIR_ID : STATUS				- Удалить папу
+	fex dir TOKEN get <DIR_ID> <PATH> : FILE_NAME			- Скачать всю папу в zip архиве
+	fex fexid TOKEN : FEX_ID					- Получить FEX ID
+	fex url TOKEN : URL						- Получить URL
+	fex name TOKEN <name> <description> : NAME			- Получить имя
+Example:
+	Удалить пароль можно так : fex passwd "\${TOKEN}" "" "123"
+EOF
 }
-create() {
-	DATA=$( curl --silent https://fex.net/j_object_create )
-	echo $DATA  | jq -cr .token
+
+function fex_create() {
+	curl --silent https://fex.net/j_object_create | sed -n -E 's/.*"token":"?([0-9]+)"?.*/\1; /p' | base64
 }
-delete(){
-	FEX_ID=$1
-	COOKIES=
-	BODY=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_object_delete/$FEX_ID )
-	echo $BODY | jq -cr .result | sed "s/1/OK/g" | sed "s/0/FAIL/g"
+
+function fex_token(){
+	FEX_ID=$2
+	DATA=$( curl --silent -X POST -d "pass=$3" -i https://fex.net/j_object_view/${FEX_ID} )
+	
+	VIEWHASH=$( echo "${DATA}" | tr -d "\r\n" | sed -n -E 's/.*viewhash=([^;]+);.*/\1/p' )
+	RESULT=$( echo "${DATA}" | tr -d "\r\n" | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
+	MSG=$( echo "${DATA}" | tr -d "\r\n" | sed -E -e 's/.*msg":"(.+)"[},].*/\1/g' -e 's/.*result.*//g' )
+	
+	test "${RESULT}" == "0" -a ! -z "${MSG}" && logger -t fex -s "${MSG}"
+	test "${RESULT}" == "0" && return 1
+	echo "${FEX_ID};${VIEWHASH}" | base64
+	return 0
 }
-token(){
-	FEX_ID=$1
-	COOKIES=
-	DATA=$( curl --silent -X POST -d "pass=$2" -i https://fex.net/j_object_view/$FEX_ID )
-	BODY=$( echo "$DATA" | grep result )
-	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
-		echo "$BODY" | jq -cr '.err.msg' ; exit 1
-	fi
-	C_TOKEN=$( echo "$DATA" | grep "Set-Cookie" | grep -v "cid" | tr -d "\r\n" | sed -r -e 's/.*viewhash=//g' -e 's/;.*//g' )
-	echo -e "$1\n$C_TOKEN" | base64
+
+function fex_delete() {
+	RESULT=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" https://fex.net/j_object_delete/${FEX_ID} | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
+	test "${RESULT}" == "1" && return 0 || return 1
 }
-passwd(){
-	FEX_ID=$1
-	COOKIES=
-	DATA=$( curl --silent -X POST --data "pass=$3" --data "old_pass=$2" -i https://fex.net/j_object_set_view_pass/$FEX_ID )
-	BODY=$( echo "$DATA" | grep result )
-	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
-		echo "$BODY" | jq -cr '.err.msg' ; exit 1
-	fi
-	C_TOKEN=$( echo "$DATA" | grep "Set-Cookie" | grep -v "cid" | tr -d "\r\n" | sed -r -e 's/.*viewhash=//g' -e 's/;.*//g' )
-	echo -e "$FEX_ID\n$C_TOKEN" | base64
+
+function fex_passwd() {
+	OLD_PASS=
+	test "$4" != "" && OLD_PASS="old_pass=$4"
+	DATA=$( curl --silent -i --cookie "viewhash=${FEX_VIEWHASH}" -X POST --data "pass=$3" --data "${OLD_PASS}" https://fex.net/j_object_set_view_pass/${FEX_ID} )
+	
+	VIEWHASH=$( echo "${DATA}" | tr -d "\r\n" | sed -n -E 's/.*viewhash=([^;]+);.*/\1/p' )
+	RESULT=$( echo -n "${DATA}" | tr -d "\r\n" | sed -E 's/.*result":([0-9]+).*/\1/g' )
+	MSG=$( echo -n "${DATA}" | tr -d "\r\n" | sed -E -e 's/.*msg":"(.+)"[},].*/\1/g' -e 's/.*result.*//g' )
+	
+	test "${RESULT}" == "0" -a ! -z "${MSG}" && logger -t fex -s "${MSG}"
+	test "${RESULT}" == "0" && return 1
+	echo "${FEX_ID};${VIEWHASH}" | base64
+	return 0
 }
-file_list(){
-	FEX_ID=$( echo "$1" | base64 $BASE64_D | head -n1)
-	COOKIES=$( echo "$1" | base64 $BASE64_D | tail -n1)
-	BODY=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_object_view/$FEX_ID )
-	if [ $( echo "$BODY" | jq -cr .result ) = "0" ] ; then
-		echo "$BODY" | jq -cr '.err.msg' ; exit 1
-	fi
-	echo $BODY | jq -cr '.upload_list[] | [ .name, .upload_id, .sha1 ] | join("\t ")'
+
+function fex_file_folder_list() {
+	RESPONSE=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" https://fex.net/j_object_folder_view/${FEX_ID}/$1 | sed -n -E 's/.*upload_list":\[(.*)].*/\1/p' | sed -E 's/},\{/}\n{/g' )
+	DATA=$( echo -e "${DATA}\n${RESPONSE}" )
+	IDS=$( echo "${RESPONSE}" | sed -E 's/.*upload_id":"?([^"]+)"?.*/\1/g' )
+	for OBJ_ID in ${IDS}
+	do
+		IS_FOLDER=$( echo "${DATA}" | grep "${OBJ_ID}" | sed -n -E 's/.*is_folder":([0-9]+).*/\1/p' )
+		NAME=$( echo "${DATA}" | grep "${OBJ_ID}" | sed -n -E 's/.*name":"([^"]+)".*/\1/p' )
+		CRC32=$( echo "${DATA}" | grep "${OBJ_ID}" | sed -n -E 's/.*crc32":"([^"]+)".*/\1/p' )
+		
+		test "${CRC32}" == "" && CRC32="	"
+		
+		echo -n "${OBJ_ID}	${IS_FOLDER}	${CRC32}	${2}${NAME}"
+		test "${IS_FOLDER}" == "1" && echo -n "/"
+		echo ""
+		test "${IS_FOLDER}" == "1" && fex_file_folder_list "${OBJ_ID}" "${2}${NAME}/"
+	done
 }
-file_del(){
-	FEX_ID=$( echo "$1" | base64 $BASE64_D | head -n1)
-	COOKIES=$( echo "$1" | base64 $BASE64_D | tail -n1)
-	BODY=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_upload_delete/$FEX_ID/$2 )
-	echo $BODY | jq -cr .result | sed "s/1/OK/g" | sed "s/0/FAIL/g"
+
+function fex_file_list() {
+	DATA=""
+	echo "ID		ISF	CRC32		NAME"
+	fex_file_folder_list "0" ""
 }
-file_add(){
-	FEX_ID=$( echo "$1" | base64 $BASE64_D | head -n1)
-	COOKIES=$( echo "$1" | base64 $BASE64_D | tail -n1)
-	DATA=$( curl --silent --cookie "viewhash=$COOKIES" https://fex.net/j_object_view/$FEX_ID )
-	FSID=$( echo "$DATA" | jq -cr .fs_id )
-	DATA=$( curl --silent -X OPTIONS --cookie "viewhash=$COOKIES" -i https://fs$FSID.fex.net/upload/$FEX_ID | grep "HTTP/" )
-	if [ "$DATA" = "HTTP/1.1 204 No Content\r" ] ; then
-		echo "Error OPTIONS status!" ; exit 1
-	fi
-	BODY=$( curl --silent --cookie "viewhash=$COOKIES" --form file=@$2 https://fs$FSID.fex.net/upload/$FEX_ID )
-	RESULT=$( echo "$BODY" | jq -cr .result )
-	if [ "$RESULT" = "0" ] ; then
-		echo "$BODY" | jq -cr '.err.msg' ; exit 1
-	fi
-	echo "$BODY" | jq -cr .upload_id
+
+function fex_file_del(){
+	FILES=$( echo "$@" | sed -E 's/.*del (.*)/\1/g' | tr " " "," )
+	RESULT=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" -X POST --data "list=${FILES}" https://fex.net/j_upload_list_delete/${FEX_ID} | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
+	test "${RESULT}" == "1" && return 0 || return 1
 }
-file(){
-	file_$2 "$1" "$3"
+
+function fex_file_add(){
+	UPLOAD_URL=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" https://fex.net/j_object_access/${FEX_ID} | grep -o -E "https://.*.fex.net.*/upload" )
+	
+	DATA=$( curl --show-error  --progress-bar --cookie "viewhash=${FEX_VIEWHASH}" --form file=@$4 ${UPLOAD_URL}/${FEX_ID}/${5-0} )
+	OBJ_ID=$( echo "${DATA}" | sed -n -E 's/.*upload_id":"?([^"]+)"?.*/\1/p' )
+	RESULT=$( echo "${DATA}" | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
+	echo "${OBJ_ID}"
+	test "${RESULT}" == "1" && return 0 || return 1
 }
-COMMAND=$1
-if [[ $COMMAND == "" ]] ; then
-	COMMAND=help
-fi
-$COMMAND "$2" "$3" "$4"
+
+function fex_file_get(){
+	DOWNLOAD_URL=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" -w %{redirect_url} https://fex.net/load/${FEX_ID}/$4 )
+	FILE="-O"
+	test "$5" != "" && FILE="-o $5"
+	curl --show-error --progress-bar --cookie "viewhash=${FEX_VIEWHASH}" -w %{filename_effective} ${FILE} ${DOWNLOAD_URL}
+	echo ""
+	return 0
+}
+
+function fex_dir_add(){
+	DATA=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" -X POST --data "name=$4" https://fex.net/j_object_folder_create/${FEX_ID}/${5-0} )
+	OBJ_ID=$( echo "${DATA}" | sed -n -E 's/.*upload_id":"?([^"]+)"?.*/\1/p' )
+	RESULT=$( echo "${DATA}" | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
+	echo "${OBJ_ID}"
+	test "${RESULT}" == "1" && return 0 || return 1
+}
+
+function fex_dir_del(){
+	fex_file_del "$@"
+}
+
+function fex_dir_get(){
+	DOWNLOAD_URL=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" -w %{redirect_url} https://fex.net/zip/${FEX_ID}/${4-0} )
+	FILE="-O"
+	test "$5" != "" && FILE="-o $5"
+	curl --show-error --progress-bar --cookie "viewhash=${FEX_VIEWHASH}" -w %{filename_effective} ${FILE} ${DOWNLOAD_URL}
+	echo ""
+	return 0
+}
+
+function fex_fexid(){
+	echo "${FEX_ID}"
+}
+
+function fex_url(){
+	echo "https://fex.net/${FEX_ID}"
+}
+
+function fex_name(){
+	NEW_TITLE=$( echo -e "post=$3\n$4" )
+	test "$3" != "" && RESPONSE=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" -X POST --data "${NEW_TITLE}" https://fex.net/j_object_update/${FEX_ID} )
+	DATA=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" https://fex.net/j_object_view/${FEX_ID} | sed -n -E 's/.*post":"?([^"]+)"?.*/\1/p' )
+	echo -e "$DATA"
+}
+
+function fex_file(){
+	fex_file_${3-list} "$@"
+}
+
+function fex_dir(){
+	fex_dir_${3-list} "$@"
+}
+
+function fex_test() {
+	fex help
+	
+	dd if=/dev/urandom of=test.img bs=1M count=10
+
+	echo ""
+	echo "Начало тестирования. Status = 0 - значит что все хорошо."
+	echo ""
+	echo "Тестируем создание"
+	TOKEN=$( fex create )
+	echo "Получен token:" ${TOKEN}
+
+	#echo ""
+	#echo "Тестируем получение токена."
+	#FEX_TOKEN=$( fex token ${FEX_ID} )
+	#echo "Получен token:" ${FEX_TOKEN}
+
+	echo ""
+	echo "Тестируем добавление файла."
+	FILE_ID=$( fex file ${TOKEN} add test.img )
+	echo "Status $?"
+
+	echo ""
+	echo "Тестируем получение списка файлов."
+	fex file ${TOKEN} list
+	echo "Status $?"
+
+	echo ""
+	echo "Тестируем удаление файла."
+	fex file ${TOKEN} del ${FILE_ID}
+	echo "Status $?"
+
+	echo ""
+	echo "Тестируем получение списка файлов."
+	fex file ${TOKEN} list
+	echo "Status $?"
+	
+	echo ""
+	echo "Тестируем удаление без пароля"
+	fex delete ${TOKEN}
+	echo "Status $?"
+	
+	echo ""
+	echo "Тестируем создание"
+	TOKEN=$( fex create )
+	echo "Получен token:" ${TOKEN}
+	
+	echo ""
+	echo "Тестируем установку пароля"
+	TOKEN=$( fex passwd ${TOKEN} "123" )
+	echo "Status $?"
+	
+	echo ""
+	echo "Тестируем смену пароля"
+	TOKEN=$( fex passwd ${TOKEN} "1234" "123" )
+	echo "Status $?"
+	
+	echo ""
+	echo "Тестируем удаление пароля"
+	TOKEN=$( fex passwd ${TOKEN} "" "1234" )
+	echo "Status $?"
+	
+	echo ""
+	echo "Тестируем установку пароля"
+	TOKEN=$( fex passwd ${TOKEN} "123" )
+	echo "Status $?"
+	
+	echo ""
+	echo "Тестируем смену пароля при неверном старом. Status = 1."
+	fex passwd ${TOKEN} "123" "1234"
+	echo "Status $?"
+
+	#echo ""
+	#echo "Тестируем получение токена."
+	#FEX_TOKEN=$( fex token ${FEX_ID} "123" )
+	#echo "Получен token:" ${FEX_TOKEN}
+
+	echo ""
+	echo "Тестируем добавление папки."
+	FEX_DIR1=$( fex dir ${TOKEN} add dir1 )
+	echo "Status $?"
+
+	echo ""
+	echo "Тестируем добавление папки в папку."
+	FEX_DIR2=$( fex dir ${TOKEN} add dir2 ${FEX_DIR1} )
+	echo "Status $?"
+
+	echo ""
+	echo "Тестируем добавление файла в папку."
+	fex file ${TOKEN} add test.img ${FEX_DIR1}
+	echo "Status $?"
+
+	echo ""
+	echo "Тестируем получение списка файлов."
+	fex file ${TOKEN} list
+	echo "Status $?"
+
+	echo ""
+	echo "Тестируем удаление папки."
+	FEX_DIR2=$( fex dir ${TOKEN} del ${FEX_DIR2} )
+	echo "Status $?"
+
+	echo ""
+	echo "Тестируем получение списка файлов."
+	fex file ${TOKEN} list
+	echo "Status $?"
+
+	echo ""
+	echo "Тестируем загрузку папки."
+	FEX_DIR2=$( fex dir ${TOKEN} get ${FEX_DIR1} )
+	echo "Status $?"
+	
+	echo ""
+	echo "Тестируем удаление c паролем."
+	fex delete ${TOKEN}
+	echo "Status $?"
+
+	rm test.img
+}
+
+fex() {
+	export FEX_ID=$( echo "$2" | base64 -d | tr ";" "\n" | head -n1 )
+	export FEX_VIEWHASH=$( echo "$2" | base64 -d | tr ";" "\n" | tail -n1 )
+	fex_${1-help} "$@"
+}
+
+fex "$@"

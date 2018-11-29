@@ -1,12 +1,13 @@
 #!/bin/sh
 
 PASSWORD=$( head -c 12 /dev/urandom | base64 | tr -d "/" | tr -d "+" )
-FEX_ID=$( ./fex create )
-TOKEN=$( ./fex passwd $FEX_ID "" "$PASSWORD" )
+TOKEN=$( ./fex create )
+TOKEN=$( ./fex passwd ${TOKEN} "$PASSWORD" )
 
-echo "https://fex.net/$FEX_ID - $PASSWORD"
+FEX_URL=$( ./fex url ${TOKEN} )
+echo "${FEX_URL} - $PASSWORD"
 
 for file in "$@"
 do
-	./fex file $TOKEN add $file > /dev/null 2>&1
+	./fex file ${TOKEN} add $file
 done
