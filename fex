@@ -1,161 +1,199 @@
-#!/bin/busybox ash
+#!/bin/sh
 
 BUSYBOX_PATH=${BUSYBOX-/bin/busybox}
 
-for PROG in cat echo sed grep tr test base64 head tail logger which ; do
-	alias ${PROG}="${BUSYBOX_PATH} ${PROG}"
-done
+test -x ${BUSYBOX_PATH} && alias test="${BUSYBOX_PATH} test"
+test -x ${BUSYBOX_PATH} && alias which="${BUSYBOX_PATH} which"
+test -x ${BUSYBOX_PATH} && alias which="${BUSYBOX_PATH} echo"
+test -x ${BUSYBOX_PATH} && alias which="${BUSYBOX_PATH} printf"
+test -x ${BUSYBOX_PATH} && alias which="${BUSYBOX_PATH} stat"
+test -x ${BUSYBOX_PATH} && alias which="${BUSYBOX_PATH} basename"
 
-CURL_TEST=$( which curl )
-CURL_PATH=${CURL-$CURL_TEST}
+LOGGER_PATH=$(which logger)
+test -z ${LOGGER_PATH} && alias logger="${BUSYBOX_PATH} logger -s -t fexcli" || alias logger="${LOGGER_PATH} -s -p 3 -t fexcli"
 
-alias curl="${CURL_PATH}"
+function error() {
+	logger "$1"
+	exit
+}
+
+# Test head
+test -z $(which head) && alias head="${BUSYBOX_PATH} head"
+test $(echo TEST | head) = "TEST" || error "Command <head> not found."
+
+# Test tail
+test -z $(which tail) && alias tail="${BUSYBOX_PATH} tail"
+test $(echo TEST | tail) = "TEST" || error "Command <tail> not found."
+
+# Test tr
+test -z $(which tr) && alias tr="${BUSYBOX_PATH} tr"
+test $(echo TEST | tr "T" "V" | tr -d "V") = "ES" || error "Command <tr> not found."
+
+# Test cat
+test -z $(which cat) && alias cat="${BUSYBOX_PATH} cat"
+test $(echo TEST | cat) = "TEST" || error "Command <cat> not found."
+
+# Test sed
+test -z $(which sed) && alias sed="${BUSYBOX_PATH} sed"
+test $(echo TEST) = "TEST" || error "Command <sed> not found."
+
+# Test grep
+test -z $(which grep) && alias grep="${BUSYBOX_PATH} grep"
+test $(echo TEST | grep -i -e "^TEST$") = "TEST" || error "Command <grep> not found."
+
+# Test base64 encode
+test -z $(which base64) && alias base64_e="${BUSYBOX_PATH} base64" || alias base64_e=base64
+test $(echo TEST | base64_e) = "VEVTVAo=" || error "Command <base64> not found."
+
+# Test base64 decode
+BASE64_LINUX_STYLE=$(echo TEST | base64_e | base64_e -d 2>/dev/null;true)
+BASE64_MAC_STYLE=$(echo TEST | base64_e | base64_e -D 2>/dev/null;true)
+test "${BASE64_LINUX_STYLE}" != "TEST" -a "${BASE64_MAC_STYLE}" != "TEST" && error "Command <base64> not found."
+test "${BASE64_LINUX_STYLE}" = "TEST" && alias base64_d="base64_e -d"
+test "${BASE64_MAC_STYLE}" = "TEST" && alias base64_d="base64_e -D"
+
+# Curl
+CURL_PATH=$(which curl)
+alias curl="${CURL-$CURL_PATH} -A 'fexcli v0.0.1'"
+
+FEX_API_VERSION=v1
 
 function fex_help() {
 cat << EOF
 Man:
-	Комманда : Возв. тип						- Описание.
-	fex create : TOKEN						- Создать новое хранилище.
-	fex token FEX_ID <PASSWORD> : TOKEN				- Получить токен. Если EXIT_STATUS = 0 значит все прошло успешно.
-	fex delete TOKEN : STATUS					- Удалить хранилище.
-	fex passwd TOKEN NEW_PASSWORD <OLD_PASSWORD> : NEW_TOKEN	- Изменить пароль.
-	fex file TOKEN list						- Список объектов.
-	fex file TOKEN add FILE <DIR_ID> : FILE_ID			- Добавить новый файл.
-	fex file TOKEN del FILE_ID [FILE_ID] [FILE_ID] : STATUS		- Удалить файл. Нельзя одновременно удалять из разных директорий.
-	fex file TOKEN get FILE_ID <PATH> : FILE NAME			- Скачать файл.
-	fex dir TOKEN add NAME <PARENT_DIR_ID> : DIR_ID			- Добавить папку
-	fex dir TOKEN del DIR_ID : STATUS				- Удалить папу
-	fex dir TOKEN get <DIR_ID> <PATH> : FILE_NAME			- Скачать всю папу в zip архиве
-	fex fexid TOKEN : FEX_ID					- Получить FEX ID
-	fex url TOKEN : URL						- Получить URL
-	fex name TOKEN <name> <description> : NAME			- Получить имя
+	Комманда : Возв. тип					- Описание.
+	fex login <phone> <password> : TOKEN			- Вход
+
+	fex file TOKEN list					- Список объектов.
+	fex file TOKEN add FILE <DIR_ID> : FILE_ID		- Добавить новый файл.
+	fex file TOKEN del FILE_ID [FILE_ID] [FILE_ID]		- Удалить файл. Нельзя одновременно удалять из разных директорий.
+	fex file TOKEN get FILE_ID <PATH> : FILE_NAME		- Скачать файл.
+
+	fex dir TOKEN del DIR_ID				- Удалить папу
+	fex dir TOKEN add NAME <PARENT_DIR_ID> : DIR_ID		- Добавить папку
+
+	fex name TOKEN <name> <DIR_ID> : NAME			- Задать имя
+	
+	fex share TOKEN <dir_id> : SHARE_CODE			- Расшарить
+	fex unshare TOKEN <SHARE_CODE>				- Не шарить
+	
+	fex anonymous : ATOKEN					- Вход под анонимом
+	
+	fex create ATOKEN : SHARE_CODE		- Создать новое хранилище
+	fex file ATOKEN list share/SHARE_CODE					- Список объектов.
+	
+	Все остальное кроме share/unshare так же.
+	
 Example:
-	Удалить пароль можно так : fex passwd "\${TOKEN}" "" "123"
+	#Отправить файл зарегистрированым пользователем.
+	TOKEN=\$(fex login username password)
+	DIR=\$(fex dir "\$TOKEN" add Test)
+	fex file "\$TOKEN" add /tmp/testfile.txt \$DIR
+	LINK=\$(fex share "\$TOKEN" \$DIR)
+	echo "Скинуть другу https://fex.net/s/\$LINK"
+	
+	
+	#Отправить файл анонимно
+	TOKEN=\$(fex anonymous)
+	LINK=\$(fex create "\$TOKEN")
+	DIR=\$(fex dir "\$TOKEN" add Test)
+	fex file "\$TOKEN" add /tmp/testfile.txt \$DIR
+	echo "Скинуть другу https://fex.net/s/\$LINK"
 EOF
 }
 
-function fex_create() {
-	curl --silent https://fex.net/j_object_create | sed -n -E 's/.*"token":"?([0-9]+)"?.*/\1; /p' | base64
+function fex_login(){
+	REQUEST="{\"password\":\"$3\",\"login\":\"$2\"}"
+	PHONE=$(echo "$2" | sed -n -E 's/^(\+[0-9]{8,})$/\1/p')
+	test "$2" == "${PHONE}" && REQUEST="{\"password\":\"$3\",\"phone\":\"$2\"}"
+	DATA=$(curl --silent -H 'Content-type: application/json; charset=utf-8' -X POST -d "${REQUEST}" https://api.fex.net/api/${FEX_API_VERSION}/auth/signin)
+	TOKEN=$(echo "${DATA}" | tr -d "\r\n" | sed -n -E 's/.*"token":"([^"]+)".*/\1/p')
+	test -z "${TOKEN}" && error "Invalid login or password."
+	echo "${TOKEN}"
 }
 
-function fex_token(){
-	FEX_ID=$2
-	DATA=$( curl --silent -X POST -d "pass=$3" -i https://fex.net/j_object_view/${FEX_ID} )
-	
-	VIEWHASH=$( echo "${DATA}" | tr -d "\r\n" | sed -n -E 's/.*viewhash=([^;]+);.*/\1/p' )
-	RESULT=$( echo "${DATA}" | tr -d "\r\n" | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
-	MSG=$( echo "${DATA}" | tr -d "\r\n" | sed -E -e 's/.*msg":"(.+)"[},].*/\1/g' -e 's/.*result.*//g' )
-	
-	test "${RESULT}" == "0" -a ! -z "${MSG}" && logger -t fex -s "${MSG}"
-	test "${RESULT}" == "0" && return 1
-	echo "${FEX_ID};${VIEWHASH}" | base64
-	return 0
-}
-
-function fex_delete() {
-	RESULT=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" https://fex.net/j_object_delete/${FEX_ID} | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
-	test "${RESULT}" == "1" && return 0 || return 1
-}
-
-function fex_passwd() {
-	OLD_PASS=
-	test "$4" != "" && OLD_PASS="old_pass=$4"
-	DATA=$( curl --silent -i --cookie "viewhash=${FEX_VIEWHASH}" -X POST --data "pass=$3" --data "${OLD_PASS}" https://fex.net/j_object_set_view_pass/${FEX_ID} )
-	
-	VIEWHASH=$( echo "${DATA}" | tr -d "\r\n" | sed -n -E 's/.*viewhash=([^;]+);.*/\1/p' )
-	RESULT=$( echo -n "${DATA}" | tr -d "\r\n" | sed -E 's/.*result":([0-9]+).*/\1/g' )
-	MSG=$( echo -n "${DATA}" | tr -d "\r\n" | sed -E -e 's/.*msg":"(.+)"[},].*/\1/g' -e 's/.*result.*//g' )
-	
-	test "${RESULT}" == "0" -a ! -z "${MSG}" && logger -t fex -s "${MSG}"
-	test "${RESULT}" == "0" && return 1
-	echo "${FEX_ID};${VIEWHASH}" | base64
-	return 0
+function fex_anonymous(){
+	DATA=$(curl --silent -X GET https://api.fex.net/api/${FEX_API_VERSION}/config/anonymous)
+	TOKEN=$(echo "${DATA}" | tr -d "\r\n" | sed -n -E 's/.*"anonym_token":"([^"]+)".*/\1/p')
+	test -z "${TOKEN}" && error "Invalid get token."
+	echo "${TOKEN}"
 }
 
 function fex_file_folder_list() {
-	RESPONSE=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" https://fex.net/j_object_folder_view/${FEX_ID}/$1 | sed -n -E 's/.*upload_list":\[(.*)].*/\1/p' | sed -E 's/},\{/}\n{/g' )
-	DATA=$( echo -e "${DATA}\n${RESPONSE}" )
-	IDS=$( echo "${RESPONSE}" | sed -E 's/.*upload_id":"?([^"]+)"?.*/\1/g' )
+	RESPONSE=$(curl --silent -H "authorization: Bearer ${FEX_TOKEN}" https://api.fex.net/api/${FEX_API_VERSION}/file/$1 | sed -n -E 's/.*"children":\[(\{.*\})\].*parent_id.*/\1/p' | sed -e 's/},{/}\'$'\n{/g'  )
+	DATA=$(echo -e "${DATA}\n${RESPONSE}")
+	IDS=$(echo "${RESPONSE}" | sed -E 's/.*"id":([0-9]+)"?.*parent_id.*/\1/g')
 	for OBJ_ID in ${IDS}
 	do
-		IS_FOLDER=$( echo "${DATA}" | grep "${OBJ_ID}" | sed -n -E 's/.*is_folder":([0-9]+).*/\1/p' )
-		NAME=$( echo "${DATA}" | grep "${OBJ_ID}" | sed -n -E 's/.*name":"([^"]+)".*/\1/p' )
-		CRC32=$( echo "${DATA}" | grep "${OBJ_ID}" | sed -n -E 's/.*crc32":"([^"]+)".*/\1/p' )
-		
-		test "${CRC32}" == "" && CRC32="	"
-		
-		echo -n "${OBJ_ID}	${IS_FOLDER}	${CRC32}	${2}${NAME}"
-		test "${IS_FOLDER}" == "1" && echo -n "/"
-		echo ""
-		test "${IS_FOLDER}" == "1" && fex_file_folder_list "${OBJ_ID}" "${2}${NAME}/"
+		IS_DIR=$(echo "${DATA}" | grep "\"id\":${OBJ_ID}" | sed -n -E 's/.*is_dir":(true|false).*/\1/p' | sed -e 's/true/1/g' -e 's/false/0/g')
+		NAME=$(echo "${DATA}" | grep "\"id\":${OBJ_ID}" | sed -n -E 's/.*name":"([^"]+)".*/\1/p' )
+		CRC32=$(echo "${DATA}" | grep "\"id\":${OBJ_ID}" | sed -n -E 's/.*crc32":"([^"]+)".*/\1/p' )
+		IS_PUBLIC=$(echo "${DATA}" | grep "\"id\":${OBJ_ID}" | sed -n -E 's/.*is_public":(true|false).*/\1/p' | sed -e 's/true/1/g' -e 's/false/0/g')
+		STR_DIR=$(echo "${IS_DIR}" | sed 's/1/\//g' | sed 's/0//g')
+		printf "%-10s	%-1s	%-1s	%8s	%s%s\n" "${OBJ_ID}" "${IS_DIR}" "${IS_PUBLIC}" "${CRC32}" "${2}${NAME}" "${STR_DIR}"
+		test "${IS_DIR}" == "1" && fex_file_folder_list "${OBJ_ID}" "${2}${NAME}/"
 	done
 }
 
 function fex_file_list() {
 	DATA=""
-	echo "ID		ISF	CRC32		NAME"
-	fex_file_folder_list "0" ""
-}
-
-function fex_file_del(){
-	FILES=$( echo "$@" | sed -E 's/.*del (.*)/\1/g' | tr " " "," )
-	RESULT=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" -X POST --data "list=${FILES}" https://fex.net/j_upload_list_delete/${FEX_ID} | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
-	test "${RESULT}" == "1" && return 0 || return 1
-}
-
-function fex_file_add(){
-	UPLOAD_URL=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" https://fex.net/j_object_access/${FEX_ID} | grep -o -E "https://.*.fex.net.*/upload" )
-	
-	DATA=$( curl --show-error  --progress-bar --cookie "viewhash=${FEX_VIEWHASH}" --form file=@$4 ${UPLOAD_URL}/${FEX_ID}/${5-0} )
-	OBJ_ID=$( echo "${DATA}" | sed -n -E 's/.*upload_id":"?([^"]+)"?.*/\1/p' )
-	RESULT=$( echo "${DATA}" | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
-	echo "${OBJ_ID}"
-	test "${RESULT}" == "1" && return 0 || return 1
-}
-
-function fex_file_get(){
-	DOWNLOAD_URL=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" -w %{redirect_url} https://fex.net/load/${FEX_ID}/$4 )
-	FILE="-O"
-	test "$5" != "" && FILE="-o $5"
-	curl --show-error --progress-bar --cookie "viewhash=${FEX_VIEWHASH}" -w %{filename_effective} ${FILE} ${DOWNLOAD_URL}
-	echo ""
+	echo "ID		ISD	ISP	CRC32		NAME"
+	fex_file_folder_list "$4" ""
 	return 0
 }
 
+function fex_file_del(){
+	FILES=$(echo "$@" | sed -E 's/.*del (.*)/\1/g' | tr " " ",")
+	RESULT=$(curl --silent -H "authorization: Bearer ${FEX_TOKEN}" -X DELETE -H 'Content-Type: application/json' -d "{\"files_ids\":[${FILES}]}" https://api.fex.net/api/${FEX_API_VERSION}/file/delete)
+	#test "${RESULT}" == "1" && return 0 || return 1
+}
+
+function fex_file_add(){
+	IS_ANONIMOUS=$(echo "${FEX_TOKEN}" | sed -n -E 's/.*\.([^\.]{44}).*/\1/p' | base64 -d | sed -E 's/.*"u":0,.*/anonymous\/file/g' | sed -E 's/.*"u":[^0][0-9]+,.*/file\/upload/g')
+	SIZE=$(stat -c %s "$4")
+	NAME=$(basename "$4")
+	DIR="$5"
+	test -z "${DIR}" && DIR='null'
+	DATA=$(curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" -H 'Content-Type: application/json' -d "{\"directory_id\":${DIR},\"size\":${SIZE},\"name\":\"${NAME}\"}" https://api.fex.net/api/${FEX_API_VERSION}/${IS_ANONIMOUS})
+	UPLOAD_URL=$(echo "$DATA" | sed -n -E 's/.*"location":"([^"]+)".*/\1/p')
+	curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X POST --data '' ${UPLOAD_URL}
+	RESPONCE=$(curl -H "authorization: Bearer ${FEX_TOKEN}" --show-error --progress-bar -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X PATCH --data-binary @$4 ${UPLOAD_URL})
+	echo "${RESPONCE}" | sed -n -E 's/.*"id":([^",]+)?.*/\1/p'
+}
+
+function fex_file_get(){
+	DATA=$(curl -H "authorization: Bearer ${FEX_TOKEN}" https://api.fex.net/api/${FEX_API_VERSION}/file/$4)
+	DOWNLOAD_URL=$(echo "${DATA}" | sed -n -E 's/.*"download_url":"([^"]+)".*parent_id.*/\1/p')
+	FILE="-O"
+	test "$5" != "" && FILE="-o $5"
+	curl --show-error --progress-bar -H "authorization: Bearer ${FEX_TOKEN}" -w %{filename_effective} ${FILE} ${DOWNLOAD_URL}
+}
+
 function fex_dir_add(){
-	DATA=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" -X POST --data "name=$4" https://fex.net/j_object_folder_create/${FEX_ID}/${5-0} )
-	OBJ_ID=$( echo "${DATA}" | sed -n -E 's/.*upload_id":"?([^"]+)"?.*/\1/p' )
-	RESULT=$( echo "${DATA}" | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
+	IS_ANONIMOUS=$(echo "${FEX_TOKEN}" | sed -n -E 's/.*\.([^\.]{44}).*/\1/p' | base64 -d | sed -E 's/.*"u":0,.*/anonymous\/directory/g' | sed -E 's/.*"u":[^0][0-9]+,.*/file\/create-dirs/g')
+	DATA=$(curl --silent -H "authorization: Bearer ${FEX_TOKEN}" -H 'Content-Type: application/json' -d "{\"names\":[\"$4\"]}" https://api.fex.net/api/${FEX_API_VERSION}/${IS_ANONIMOUS}/$5)
+	OBJ_ID=$( echo "${DATA}" | sed -n -E 's/.*"id":"?([^",]+)"?.*parent_id.*/\1/p' )
+	#RESULT=$( echo "${DATA}" | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
 	echo "${OBJ_ID}"
-	test "${RESULT}" == "1" && return 0 || return 1
+	#test "${RESULT}" == "1" && return 0 || return 1
 }
 
 function fex_dir_del(){
 	fex_file_del "$@"
 }
 
-function fex_dir_get(){
-	DOWNLOAD_URL=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" -w %{redirect_url} https://fex.net/zip/${FEX_ID}/${4-0} )
-	FILE="-O"
-	test "$5" != "" && FILE="-o $5"
-	curl --show-error --progress-bar --cookie "viewhash=${FEX_VIEWHASH}" -w %{filename_effective} ${FILE} ${DOWNLOAD_URL}
-	echo ""
-	return 0
-}
-
-function fex_fexid(){
-	echo "${FEX_ID}"
-}
-
-function fex_url(){
-	echo "https://fex.net/${FEX_ID}"
-}
-
 function fex_name(){
-	NEW_TITLE=$( echo -e "post=$3\n$4" )
-	test "$3" != "" && RESPONSE=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" -X POST --data "${NEW_TITLE}" https://fex.net/j_object_update/${FEX_ID} )
-	DATA=$( curl --silent --cookie "viewhash=${FEX_VIEWHASH}" https://fex.net/j_object_view/${FEX_ID} | sed -n -E 's/.*post":"?([^"]+)"?.*/\1/p' )
-	echo -e "$DATA"
+	DATA=$(curl --silent -H "authorization: Bearer ${FEX_TOKEN}" -X PUT -H 'Content-Type: application/json' -d "{\"name\":\"$3\"}" https://api.fex.net/api/${FEX_API_VERSION}/file/rename/$4)
+	echo "${DATA}" | sed -n -E 's/.*"name":"([^"]+)".*/\1/p'
+}
+
+function fex_share(){
+	DATA=$(curl --silent -H "authorization: Bearer ${FEX_TOKEN}" -H 'Content-Type: application/json' -d "{\"files_ids\":[$3],\"title\":\"\"}" https://api.fex.net/api/${FEX_API_VERSION}/file/share)
+	echo "${DATA}" | sed -n -E 's/.*"link":"([^"]*)".*/\1/p'
+}
+
+function fex_unshare(){
+	DATA=$(curl --silent -H "authorization: Bearer ${FEX_TOKEN}" -X DELETE https://api.fex.net/api/${FEX_API_VERSION}/file/share/$3)
 }
 
 function fex_file(){
@@ -164,6 +202,17 @@ function fex_file(){
 
 function fex_dir(){
 	fex_dir_${3-list} "$@"
+}
+
+function fex_create(){
+	SIZE=84
+	NAME=README.TXT
+	DATA=$(curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" -H 'Content-Type: application/json' -d "{\"directory_id\":null,\"size\":${SIZE},\"name\":\"${NAME}\"}" https://api.fex.net/api/${FEX_API_VERSION}/anonymous/file)
+	UPLOAD_URL=$(echo "$DATA" | sed -n -E 's/.*"location":"([^"]+)".*/\1/p')
+	curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X POST --data '' ${UPLOAD_URL}
+	RESPONCE=$(curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" --show-error --progress-bar -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X PATCH --data-binary $'This is shared folder created from fexcli utils.\nhttps://github.com/radroxx/fex.net\n' ${UPLOAD_URL})
+	#echo "${RESPONCE}" | sed -n -E 's/.*"id":([^",]+)?.*/\1/p'
+	echo "${DATA}" | sed -n -E 's/.*"anon_upload_link":"([^"]+)".*/\1/p'
 }
 
 function fex_test() {
@@ -175,8 +224,10 @@ function fex_test() {
 	echo "Начало тестирования. Status = 0 - значит что все хорошо."
 	echo ""
 	echo "Тестируем создание"
-	TOKEN=$( fex create )
+	TOKEN=$( fex anonymous )
 	echo "Получен token:" ${TOKEN}
+	LINK=$(fex create "${TOKEN}")
+	echo "Получен LINK: https://fex.net/s/${LINK}"
 
 	#echo ""
 	#echo "Тестируем получение токена."
@@ -190,7 +241,7 @@ function fex_test() {
 
 	echo ""
 	echo "Тестируем получение списка файлов."
-	fex file ${TOKEN} list
+	fex file ${TOKEN} list share/${LINK}
 	echo "Status $?"
 
 	echo ""
@@ -200,49 +251,9 @@ function fex_test() {
 
 	echo ""
 	echo "Тестируем получение списка файлов."
-	fex file ${TOKEN} list
+	fex file ${TOKEN} list share/${LINK}
 	echo "Status $?"
 	
-	echo ""
-	echo "Тестируем удаление без пароля"
-	fex delete ${TOKEN}
-	echo "Status $?"
-	
-	echo ""
-	echo "Тестируем создание"
-	TOKEN=$( fex create )
-	echo "Получен token:" ${TOKEN}
-	
-	echo ""
-	echo "Тестируем установку пароля"
-	TOKEN=$( fex passwd ${TOKEN} "123" )
-	echo "Status $?"
-	
-	echo ""
-	echo "Тестируем смену пароля"
-	TOKEN=$( fex passwd ${TOKEN} "1234" "123" )
-	echo "Status $?"
-	
-	echo ""
-	echo "Тестируем удаление пароля"
-	TOKEN=$( fex passwd ${TOKEN} "" "1234" )
-	echo "Status $?"
-	
-	echo ""
-	echo "Тестируем установку пароля"
-	TOKEN=$( fex passwd ${TOKEN} "123" )
-	echo "Status $?"
-	
-	echo ""
-	echo "Тестируем смену пароля при неверном старом. Status = 1."
-	fex passwd ${TOKEN} "123" "1234"
-	echo "Status $?"
-
-	#echo ""
-	#echo "Тестируем получение токена."
-	#FEX_TOKEN=$( fex token ${FEX_ID} "123" )
-	#echo "Получен token:" ${FEX_TOKEN}
-
 	echo ""
 	echo "Тестируем добавление папки."
 	FEX_DIR1=$( fex dir ${TOKEN} add dir1 )
@@ -260,7 +271,7 @@ function fex_test() {
 
 	echo ""
 	echo "Тестируем получение списка файлов."
-	fex file ${TOKEN} list
+	fex file ${TOKEN} list share/${LINK}
 	echo "Status $?"
 
 	echo ""
@@ -270,25 +281,19 @@ function fex_test() {
 
 	echo ""
 	echo "Тестируем получение списка файлов."
-	fex file ${TOKEN} list
+	fex file ${TOKEN} list share/${LINK}
 	echo "Status $?"
 
-	echo ""
-	echo "Тестируем загрузку папки."
-	FEX_DIR2=$( fex dir ${TOKEN} get ${FEX_DIR1} )
-	echo "Status $?"
+	#echo ""
+	#echo "Тестируем загрузку папки."
+	#FEX_DIR2=$( fex dir ${TOKEN} get ${FEX_DIR1} )
+	#echo "Status $?"
 	
-	echo ""
-	echo "Тестируем удаление c паролем."
-	fex delete ${TOKEN}
-	echo "Status $?"
-
 	rm test.img
 }
 
 fex() {
-	export FEX_ID=$( echo "$2" | base64 -d | tr ";" "\n" | head -n1 )
-	export FEX_VIEWHASH=$( echo "$2" | base64 -d | tr ";" "\n" | tail -n1 )
+	FEX_TOKEN="$2"
 	fex_${1-help} "$@"
 }
 

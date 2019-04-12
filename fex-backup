@@ -1,13 +1,13 @@
 #!/bin/sh
 
-PASSWORD=$( head -c 12 /dev/urandom | base64 | tr -d "/" | tr -d "+" )
-TOKEN=$( ./fex create )
-TOKEN=$( ./fex passwd ${TOKEN} "$PASSWORD" )
+TOKEN=$(./fex anonymous)
+LINK=$(./fex create ${TOKEN})
 
-FEX_URL=$( ./fex url ${TOKEN} )
-echo "${FEX_URL} - $PASSWORD"
+echo "https://fex.net/s/${LINK}"
+
+DIR=$(./fex dir ${TOKEN} add backup_`date +%Y%m%d%H%M%S`)
 
 for file in "$@"
 do
-	./fex file ${TOKEN} add $file
+	./fex file ${TOKEN} add $file ${DIR}
 done

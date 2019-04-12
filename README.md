@@ -7,21 +7,15 @@
 $ apt-get install busybox curl
 $ sudo curl -L -o /bin/fex https://raw.githubusercontent.com/radroxx/fex.net/master/fex
 $ sudo chmod +x /bin/fex
-$ TOKEN='fex create'
-$ fex file ${TOKEN} add /etc/hostname
-$ fex file ${TOKEN} list
-$ fex url ${TOKEN}
 ```
+busybox не обязателен.
 ### Android (Termux)
 ```
-$ pkgs install busybox curl
+$ pkg install busybox curl
 $ curl -L -o fex https://raw.githubusercontent.com/radroxx/fex.net/master/fex
-$ sudo chmod +x fex
-$ TOKEN='./fex create'
-$ ./fex file ${TOKEN} add /etc/hostname
-$ ./fex file ${TOKEN} list
-$ ./fex url ${TOKEN}
+$ chmod +x fex
 ```
+busybox не обязателен.
 ### Windows
 Скачать:
 * [Busybox-win] <https://frippery.org/busybox/>
@@ -29,10 +23,6 @@ $ ./fex url ${TOKEN}
 ```
 $ export BUSYBOX=C:/Busybox.exe
 $ export CURL=C:/curl.exe
-$ TOKEN='./fex create'
-$ ./fex file ${TOKEN} add /etc/hostname
-$ ./fex file ${TOKEN} list
-$ ./fex url ${TOKEN}
 ```
 ### Mac OS
-Где взять Busybox для Mac OS ?
+Должно работать и так.
