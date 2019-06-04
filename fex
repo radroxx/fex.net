@@ -210,8 +210,8 @@ function fex_create(){
 	DATA=$(curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" -H 'Content-Type: application/json' -d "{\"directory_id\":null,\"size\":${SIZE},\"name\":\"${NAME}\"}" https://api.fex.net/api/${FEX_API_VERSION}/anonymous/file)
 	UPLOAD_URL=$(echo "$DATA" | sed -n -E 's/.*"location":"([^"]+)".*/\1/p')
 	curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X POST --data '' ${UPLOAD_URL}
-	RESPONCE=$(curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" --show-error --progress-bar -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X PATCH --data-binary $'This is shared folder created from fexcli utils.\nhttps://github.com/radroxx/fex.net\n' ${UPLOAD_URL})
-	#echo "${RESPONCE}" | sed -n -E 's/.*"id":([^",]+)?.*/\1/p'
+	RESPONSE=$(curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" --show-error --progress-bar -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X PATCH --data-binary $'This is shared folder created from fexcli utils.\nhttps://github.com/radroxx/fex.net\n' ${UPLOAD_URL})
+	#echo "${RESPONSE}" | sed -n -E 's/.*"id":([^",]+)?.*/\1/p'
 	echo "${DATA}" | sed -n -E 's/.*"anon_upload_link":"([^"]+)".*/\1/p'
 }
 
