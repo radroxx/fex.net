@@ -161,7 +161,7 @@ function fex_file_add(){
 	DATA=$(curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" -H 'Content-Type: application/json' -d "{\"directory_id\":${DIR},\"size\":${SIZE},\"name\":\"${NAME}\"}" https://api.fex.net/api/${FEX_API_VERSION}/${IS_ANONIMOUS})
 	UPLOAD_URL=$(echo "$DATA" | sed -n -E 's/.*"location":"([^"]+)".*/\1/p')
 	curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X POST --data '' ${UPLOAD_URL}
-	RESPONSE=$(curl ${QUIET} -H "authorization: Bearer ${FEX_TOKEN}" --show-error --progress-bar -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X PATCH --data-binary @$4 ${UPLOAD_URL})
+	RESPONSE=$(curl ${QUIET} -H "authorization: Bearer ${FEX_TOKEN}" --show-error --progress-bar -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X PATCH --upload-file $4 ${UPLOAD_URL})
 	echo "${RESPONSE}" | sed -n -E 's/.*"id":([^",]+)?.*/\1/p'
 }
 
