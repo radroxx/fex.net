@@ -56,6 +56,8 @@ test "${BASE64_MAC_STYLE}" = "TEST" && alias base64_d="base64_e -D"
 CURL_PATH=$(which curl)
 alias curl="${CURL-$CURL_PATH} -A 'fexcli v0.0.1'"
 
+QUIET=
+
 FEX_API_VERSION=v1
 
 function fex_help() {
@@ -66,8 +68,10 @@ Man:
 
 	fex file TOKEN list					- Список объектов.
 	fex file TOKEN add FILE <DIR_ID> : FILE_ID		- Добавить новый файл.
+	fex -q file TOKEN add FILE <DIR_ID> : FILE_ID		- Добавить новый файл без прогрессбара.
 	fex file TOKEN del FILE_ID [FILE_ID] [FILE_ID]		- Удалить файл. Нельзя одновременно удалять из разных директорий.
 	fex file TOKEN get FILE_ID <PATH> : FILE_NAME		- Скачать файл.
+	fex --quiet file TOKEN get FILE_ID <PATH> : FILE_NAME	- Скачать файл без прогрессбара.
 
 	fex dir TOKEN del DIR_ID				- Удалить папу
 	fex dir TOKEN add NAME <PARENT_DIR_ID> : DIR_ID		- Добавить папку
@@ -157,7 +161,7 @@ function fex_file_add(){
 	DATA=$(curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" -H 'Content-Type: application/json' -d "{\"directory_id\":${DIR},\"size\":${SIZE},\"name\":\"${NAME}\"}" https://api.fex.net/api/${FEX_API_VERSION}/${IS_ANONIMOUS})
 	UPLOAD_URL=$(echo "$DATA" | sed -n -E 's/.*"location":"([^"]+)".*/\1/p')
 	curl --silent  -H "authorization: Bearer ${FEX_TOKEN}" -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X POST --data '' ${UPLOAD_URL}
-	RESPONSE=$(curl -H "authorization: Bearer ${FEX_TOKEN}" --show-error --progress-bar -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X PATCH --data-binary @$4 ${UPLOAD_URL})
+	RESPONSE=$(curl ${QUIET} -H "authorization: Bearer ${FEX_TOKEN}" --show-error --progress-bar -H 'fsp-version: 1.0.0' -H 'fsp-offset: 0' -H "fsp-size: ${SIZE}" -X PATCH --data-binary @$4 ${UPLOAD_URL})
 	echo "${RESPONSE}" | sed -n -E 's/.*"id":([^",]+)?.*/\1/p'
 }
 
@@ -166,7 +170,7 @@ function fex_file_get(){
 	DOWNLOAD_URL=$(echo "${DATA}" | sed -n -E 's/.*"download_url":"([^"]+)".*parent_id.*/\1/p')
 	FILE="-O"
 	test "$5" != "" && FILE="-o $5"
-	curl --show-error --progress-bar -H "authorization: Bearer ${FEX_TOKEN}" -w %{filename_effective} ${FILE} ${DOWNLOAD_URL}
+	curl ${QUIET} --show-error --progress-bar -H "authorization: Bearer ${FEX_TOKEN}" -w %{filename_effective} ${FILE} ${DOWNLOAD_URL}
 }
 
 function fex_dir_add(){
@@ -293,8 +297,29 @@ function fex_test() {
 }
 
 fex() {
-	FEX_TOKEN="$2"
-	fex_${1-help} "$@"
+	POSITIONAL=()
+	while [[ $# -gt 0 ]]
+	do
+	key="$1"
+	case $key in
+		--quit)
+		QUIET=--silent
+		shift
+		;;
+		-q)
+		QUIET=--silent
+		shift
+		;;
+		*)
+		POSITIONAL+=("$1") # save it in an array for later
+		shift
+		;;
+	esac
+	done
+	set -- "${POSITIONAL[@]}" # restore positional parameters
+
+	FEX_TOKEN="${POSITIONAL[1]}"
+	fex_${POSITIONAL[0]-help} "${POSITIONAL[@]}"
 }
 
 fex "$@"
