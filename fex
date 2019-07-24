@@ -6,7 +6,7 @@ test -x ${BUSYBOX_PATH} && alias test="${BUSYBOX_PATH} test"
 test -x ${BUSYBOX_PATH} && alias which="${BUSYBOX_PATH} which"
 test -x ${BUSYBOX_PATH} && alias which="${BUSYBOX_PATH} echo"
 test -x ${BUSYBOX_PATH} && alias which="${BUSYBOX_PATH} printf"
-test -x ${BUSYBOX_PATH} && alias which="${BUSYBOX_PATH} stat"
+test -x ${BUSYBOX_PATH} && alias which="${BUSYBOX_PATH} wc"
 test -x ${BUSYBOX_PATH} && alias which="${BUSYBOX_PATH} basename"
 
 LOGGER_PATH=$(which logger)
@@ -154,7 +154,7 @@ function fex_file_del(){
 
 function fex_file_add(){
 	IS_ANONIMOUS=$(echo "${FEX_TOKEN}" | sed -n -E 's/.*\.([^\.]{44}).*/\1/p' | base64_d | sed -E 's/.*"u":0,.*/anonymous\/file/g' | sed -E 's/.*"u":[^0][0-9]+,.*/file\/upload/g')
-	SIZE=$(stat -c %s "$4")
+	SIZE=$(wc -c "$4" | sed -n -E 's/[^0-9]*([0-9]+).*/\1/p')
 	NAME=$(basename "$4")
 	DIR="$5"
 	test -z "${DIR}" && DIR='null'
