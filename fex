@@ -153,7 +153,7 @@ function fex_file_del(){
 }
 
 function fex_file_add(){
-	IS_ANONIMOUS=$(echo "${FEX_TOKEN}" | sed -n -E 's/.*\.([^\.]{44}).*/\1/p' | base64 -d | sed -E 's/.*"u":0,.*/anonymous\/file/g' | sed -E 's/.*"u":[^0][0-9]+,.*/file\/upload/g')
+	IS_ANONIMOUS=$(echo "${FEX_TOKEN}" | sed -n -E 's/.*\.([^\.]{44}).*/\1/p' | base64_d | sed -E 's/.*"u":0,.*/anonymous\/file/g' | sed -E 's/.*"u":[^0][0-9]+,.*/file\/upload/g')
 	SIZE=$(stat -c %s "$4")
 	NAME=$(basename "$4")
 	DIR="$5"
@@ -174,7 +174,7 @@ function fex_file_get(){
 }
 
 function fex_dir_add(){
-	IS_ANONIMOUS=$(echo "${FEX_TOKEN}" | sed -n -E 's/.*\.([^\.]{44}).*/\1/p' | base64 -d | sed -E 's/.*"u":0,.*/anonymous\/directory/g' | sed -E 's/.*"u":[^0][0-9]+,.*/file\/create-dirs/g')
+	IS_ANONIMOUS=$(echo "${FEX_TOKEN}" | sed -n -E 's/.*\.([^\.]{44}).*/\1/p' | base64_d | sed -E 's/.*"u":0,.*/anonymous\/directory/g' | sed -E 's/.*"u":[^0][0-9]+,.*/file\/create-dirs/g')
 	DATA=$(curl --silent -H "authorization: Bearer ${FEX_TOKEN}" -H 'Content-Type: application/json' -d "{\"names\":[\"$4\"]}" https://api.fex.net/api/${FEX_API_VERSION}/${IS_ANONIMOUS}/$5)
 	OBJ_ID=$( echo "${DATA}" | sed -n -E 's/.*"id":"?([^",]+)"?.*parent_id.*/\1/p' )
 	#RESULT=$( echo "${DATA}" | sed -n -E 's/.*result":([0-9]+).*/\1/p' )
