@@ -1,4 +1,5 @@
-#!/bin/sh
+#!/bin/bash
+shopt -s expand_aliases
 
 BUSYBOX_PATH=${BUSYBOX-/bin/busybox}
 
